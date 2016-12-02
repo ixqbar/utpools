@@ -18,6 +18,8 @@ Options:
     	timeout to shutdown server (default 60)
   -unix string
     	unix domain socket file (default "/tmp/utpools.sock")
+  -verbose
+    	show run details
 ```
 
 ### TEST

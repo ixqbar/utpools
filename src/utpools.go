@@ -19,7 +19,7 @@ var optionMaxNum          = flag.Int("max", 20, "pool max num")
 var optionIdleTimeout     = flag.Int("idle", 3600, "pool connection idle timeout to close")
 var optionShutdownTimeout = flag.Uint("timeout", 60, "timeout to shutdown server")
 var optionUnixDomainFile  = flag.String("unix", "/tmp/utpools.sock", "unix domain socket file")
-var optionVerbose         = flag.Int("verbose", 0, `show run details`)
+var optionVerbose         = flag.Bool("verbose", false, `show run details`)
 
 func usage() {
 	fmt.Printf("Usage: %s [options]\nOptions:\n", os.Args[0])
@@ -33,7 +33,7 @@ func main() {
 
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	if (*optionVerbose == 1) {
+	if *optionVerbose {
 		os.Setenv("DEBUG", "ok")
 	}
 
