@@ -111,14 +111,14 @@ func main() {
 func handleConn(pool pipeserver.Pool, conn net.Conn) error {
 	defer conn.Close()
 
-	pipeserver.Debugf("client connected and pool size %d\n", pool.Size())
+	pipeserver.Debugf("client connected and pool size %d", pool.Size())
 
 	target, err := pool.Get()
 	if err != nil {
 		return fmt.Errorf("can't connect target")
 	}
 
-	pipeserver.Debugf("client to target and pool size %d\n", pool.Size())
+	pipeserver.Debugf("client to target and pool size %d", pool.Size())
 
 	Pipe(pool, conn, target)
 
@@ -133,22 +133,28 @@ func chanFromConn(pool pipeserver.Pool, conn net.Conn) chan []byte {
 
 		for {
 			n, err := conn.Read(b)
+			if err != nil {
+				if nerr, ok := err.(net.Error); !ok || false == nerr.Timeout() {
+					c <- nil
+				}
+				break
+			}
+
 			if n > 0 {
 				res := make([]byte, n)
 				copy(res, b[:n])
-				c <- res
-			}
-
-			if err != nil {
-				c <- nil
-				break
+				select {
+				case c <-res:
+				case <-time.After(time.Second * 10):
+					break
+				}
 			}
 		}
 
 		close(c)
 		if pool != nil {
 			pool.Put(conn)
-			pipeserver.Debugf("client disconnected and pool size %d\n", pool.Size())
+			pipeserver.Debugf("client disconnected and pool size %d", pool.Size())
 		}
 	}()
 
@@ -157,22 +163,23 @@ func chanFromConn(pool pipeserver.Pool, conn net.Conn) chan []byte {
 
 
 func Pipe(pool pipeserver.Pool, src net.Conn, dst net.Conn) {
-	chan1 := chanFromConn(nil, src)
-	chan2 := chanFromConn(pool, dst)
+	sc := chanFromConn(nil, src)
+	dc := chanFromConn(pool, dst)
 
 	for {
 		select {
-		case b1 := <-chan1:
-			if b1 == nil {
+		case sd := <-sc:
+			if sd == nil {
+				dst.SetDeadline(time.Now().Add(time.Second * 10))
 				return
 			} else {
-				dst.Write(b1)
+				dst.Write(sd)
 			}
-		case b2 := <-chan2:
-			if b2 == nil {
+		case dd := <-dc:
+			if dd == nil {
 				return
 			} else {
-				src.Write(b2)
+				src.Write(dd)
 			}
 		}
 	}
