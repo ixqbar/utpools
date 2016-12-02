@@ -9,15 +9,37 @@ import (
 	"syscall"
 	"time"
 	"sync"
+	"runtime"
+	"flag"
 )
 
+var optionTargetListen    = flag.String("target", ":6379", "target server ip:port")
+var optionMinNum          = flag.Int("min", 5, "pool min num")
+var optionMaxNum          = flag.Int("max", 20, "pool max num")
+var optionIdleTimeout     = flag.Int("idle", 3600, "pool connection idle timeout to close")
+var optionShutdownTimeout = flag.Uint("timeout", 60, "timeout to shutdown server")
+
+func usage() {
+	fmt.Printf("%s\n", `
+Usage: redisFielServer [options]
+Options:
+	`)
+	flag.PrintDefaults()
+	os.Exit(0)
+}
+
 func main() {
-	var config = &pipeserver.PoolConfig{
-		InitialCap  : 5,
-		MaxCap      : 20,
-		Factory     : func() (net.Conn, error) {return net.Dial("tcp", ":6379")},
+	flag.Usage = usage
+	flag.Parse()
+
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	config := &pipeserver.PoolConfig{
+		InitialCap  : *optionMinNum,
+		MaxCap      : *optionMaxNum,
+		IdleTimeout : *optionIdleTimeout,
+		Factory     : func() (net.Conn, error) {return net.Dial("tcp", *optionTargetListen)},
 		Destroy     : func(conn net.Conn) error {return conn.Close()},
-		IdleTimeout : 3600,
 	}
 
 	pools, err := pipeserver.NewConnectionPool(config)
@@ -26,8 +48,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	var unixSocket = "/tmp/unix.sock"
-	var connWaitGroup = &sync.WaitGroup{}
+	unixSocket := "/tmp/unix.sock"
+	connWaitGroup := &sync.WaitGroup{}
 
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{unixSocket, "unix"})
 	if err != nil {
@@ -62,7 +84,7 @@ func main() {
 		fmt.Printf("receive shutdown signal %v\n", s)
 		listener.SetDeadline(time.Now())
 
-		tt := time.NewTimer(time.Second * time.Duration(30))
+		tt := time.NewTimer(time.Second * time.Duration(*optionShutdownTimeout))
 		wait := make(chan struct{})
 		go func() {
 			connWaitGroup.Wait()
