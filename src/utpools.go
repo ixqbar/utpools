@@ -18,12 +18,10 @@ var optionMinNum          = flag.Int("min", 5, "pool min num")
 var optionMaxNum          = flag.Int("max", 20, "pool max num")
 var optionIdleTimeout     = flag.Int("idle", 3600, "pool connection idle timeout to close")
 var optionShutdownTimeout = flag.Uint("timeout", 60, "timeout to shutdown server")
+var optionUnixDomainFile  = flag.String("unix", "/tmp/utpools.sock", "unix domain socket file")
 
 func usage() {
-	fmt.Printf("%s\n", `
-Usage: redisFielServer [options]
-Options:
-	`)
+	fmt.Printf("Usage: %s [options]\nOptions:\n", os.Args[0])
 	flag.PrintDefaults()
 	os.Exit(0)
 }
@@ -48,16 +46,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	unixSocket := "/tmp/unix.sock"
 	connWaitGroup := &sync.WaitGroup{}
 
-	listener, err := net.ListenUnix("unix", &net.UnixAddr{unixSocket, "unix"})
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{*optionUnixDomainFile, "unix"})
 	if err != nil {
 		fmt.Printf("fail recover socket from file %v\n", err)
 		os.Exit(1)
 	}
 
-	defer listener.Close()
+	defer func() {
+		listener.Close()
+		pools.Release()
+	}()
 
 	go func() {
 		for {
@@ -96,9 +96,11 @@ func main() {
 		case <-wait:
 		}
 
-		os.Remove(unixSocket)
+		os.Remove(*optionUnixDomainFile)
 		break;
 	}
+
+	os.Exit(0)
 }
 
 func handleConn(pool pipeserver.Pool, conn net.Conn) error {
