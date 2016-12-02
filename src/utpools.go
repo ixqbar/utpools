@@ -150,14 +150,9 @@ func chanFromConn(conn net.Conn) chan []byte {
 }
 
 
-func Pipe(conn1 net.Conn, conn2 net.Conn) {
-	chan1 := chanFromConn(conn1)
-	chan2 := chanFromConn(conn2)
-
-	defer func() {
-		close(chan1)
-		close(chan2)
-	}()
+func Pipe(src net.Conn, dst net.Conn) {
+	chan1 := chanFromConn(src)
+	chan2 := chanFromConn(dst)
 
 	for {
 		select {
@@ -165,13 +160,13 @@ func Pipe(conn1 net.Conn, conn2 net.Conn) {
 			if b1 == nil {
 				return
 			} else {
-				conn2.Write(b1)
+				dst.Write(b1)
 			}
 		case b2 := <-chan2:
 			if b2 == nil {
 				return
 			} else {
-				conn1.Write(b2)
+				src.Write(b2)
 			}
 		}
 	}
