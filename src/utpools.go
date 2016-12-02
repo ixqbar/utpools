@@ -19,6 +19,7 @@ var optionMaxNum          = flag.Int("max", 20, "pool max num")
 var optionIdleTimeout     = flag.Int("idle", 3600, "pool connection idle timeout to close")
 var optionShutdownTimeout = flag.Uint("timeout", 60, "timeout to shutdown server")
 var optionUnixDomainFile  = flag.String("unix", "/tmp/utpools.sock", "unix domain socket file")
+var optionVerbose         = flag.Int("verbose", 0, `show run details`)
 
 func usage() {
 	fmt.Printf("Usage: %s [options]\nOptions:\n", os.Args[0])
@@ -31,6 +32,10 @@ func main() {
 	flag.Parse()
 
 	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	if (*optionVerbose == 1) {
+		os.Setenv("DEBUG", "ok")
+	}
 
 	config := &pipeserver.PoolConfig{
 		InitialCap  : *optionMinNum,
@@ -106,26 +111,21 @@ func main() {
 func handleConn(pool pipeserver.Pool, conn net.Conn) error {
 	defer conn.Close()
 
-	fmt.Printf("client connected and pool size %d\n", pool.Size())
+	pipeserver.Debugf("client connected and pool size %d\n", pool.Size())
 
 	target, err := pool.Get()
 	if err != nil {
 		return fmt.Errorf("can't connect target")
 	}
 
-	fmt.Printf("client to target and pool size %d\n", pool.Size())
+	pipeserver.Debugf("client to target and pool size %d\n", pool.Size())
 
-	defer func() {
-		pool.Put(target)
-		fmt.Printf("client disconnected and pool size %d\n", pool.Size())
-	}()
-
-	Pipe(conn, target)
+	Pipe(pool, conn, target)
 
 	return nil
 }
 
-func chanFromConn(conn net.Conn) chan []byte {
+func chanFromConn(pool pipeserver.Pool, conn net.Conn) chan []byte {
 	c := make(chan []byte)
 
 	go func() {
@@ -135,14 +135,20 @@ func chanFromConn(conn net.Conn) chan []byte {
 			n, err := conn.Read(b)
 			if n > 0 {
 				res := make([]byte, n)
-				// Copy the buffer so it doesn't get changed while read by the recipient.
 				copy(res, b[:n])
 				c <- res
 			}
+
 			if err != nil {
 				c <- nil
 				break
 			}
+		}
+
+		close(c)
+		if pool != nil {
+			pool.Put(conn)
+			pipeserver.Debugf("client disconnected and pool size %d\n", pool.Size())
 		}
 	}()
 
@@ -150,9 +156,9 @@ func chanFromConn(conn net.Conn) chan []byte {
 }
 
 
-func Pipe(src net.Conn, dst net.Conn) {
-	chan1 := chanFromConn(src)
-	chan2 := chanFromConn(dst)
+func Pipe(pool pipeserver.Pool, src net.Conn, dst net.Conn) {
+	chan1 := chanFromConn(nil, src)
+	chan2 := chanFromConn(pool, dst)
 
 	for {
 		select {
